@@ -1,11 +1,11 @@
-const { execFileSync } = require("node:child_process");
 const { existsSync, readFileSync } = require("node:fs");
 const https = require("node:https");
 const { dirname, join, resolve } = require("node:path");
 
-const marketplaceUrl = "https://raw.githubusercontent.com/pettersh/plugins/HEAD/.github/plugin/marketplace.json";
+const marketplaceUrl = "https://raw.githubusercontent.com/pettersh/plugins/main/.github/plugin/marketplace.json";
 const marketplaceName = "pettersh-plugins";
 const pluginName = "repo-guide";
+const updateCommand = `copilot plugin update ${pluginName}@${marketplaceName}`;
 
 function writeContext(message) {
   process.stdout.write(`${JSON.stringify({ additionalContext: message })}\n`);
@@ -29,6 +29,65 @@ function readMarketplaceFile(startDirectory) {
     }
     directory = parent;
   }
+}
+
+function parseVersion(version) {
+  const match = version.match(/^[vV]?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    core: match.slice(1, 4).map(BigInt),
+    prerelease: match[4] ? match[4].split(".") : [],
+  };
+}
+
+function compareVersions(left, right) {
+  const leftVersion = parseVersion(left);
+  const rightVersion = parseVersion(right);
+  if (!leftVersion || !rightVersion) {
+    return undefined;
+  }
+
+  for (let index = 0; index < leftVersion.core.length; index += 1) {
+    if (leftVersion.core[index] !== rightVersion.core[index]) {
+      return leftVersion.core[index] > rightVersion.core[index] ? 1 : -1;
+    }
+  }
+
+  const leftPrerelease = leftVersion.prerelease;
+  const rightPrerelease = rightVersion.prerelease;
+  if (leftPrerelease.length === 0 || rightPrerelease.length === 0) {
+    if (leftPrerelease.length === rightPrerelease.length) {
+      return 0;
+    }
+    return leftPrerelease.length === 0 ? 1 : -1;
+  }
+
+  for (let index = 0; index < Math.max(leftPrerelease.length, rightPrerelease.length); index += 1) {
+    if (leftPrerelease[index] === undefined) {
+      return -1;
+    }
+    if (rightPrerelease[index] === undefined) {
+      return 1;
+    }
+    if (leftPrerelease[index] === rightPrerelease[index]) {
+      continue;
+    }
+
+    const leftIsNumeric = /^\d+$/.test(leftPrerelease[index]);
+    const rightIsNumeric = /^\d+$/.test(rightPrerelease[index]);
+    if (leftIsNumeric && rightIsNumeric) {
+      return BigInt(leftPrerelease[index]) > BigInt(rightPrerelease[index]) ? 1 : -1;
+    }
+    if (leftIsNumeric !== rightIsNumeric) {
+      return leftIsNumeric ? -1 : 1;
+    }
+    return leftPrerelease[index] > rightPrerelease[index] ? 1 : -1;
+  }
+
+  return 0;
 }
 
 function fetchMarketplace(url, redirectCount = 0) {
@@ -90,11 +149,11 @@ function getMarketplaceVersion(catalog) {
   return plugin.version;
 }
 
-async function getMarketplace() {
+async function getMarketplace(startDirectory) {
   try {
     return await fetchMarketplace(new URL(marketplaceUrl));
   } catch (remoteError) {
-    const localMarketplace = readMarketplaceFile(process.cwd()) || readMarketplaceFile(process.env.COPILOT_PLUGIN_ROOT || process.cwd());
+    const localMarketplace = readMarketplaceFile(startDirectory) || readMarketplaceFile(process.env.COPILOT_PLUGIN_ROOT || process.cwd());
     if (!localMarketplace) {
       throw new Error(`GitHub marketplace unavailable (${remoteError.message}) and no local marketplace manifest was found`);
     }
@@ -118,19 +177,28 @@ async function main() {
     process.exit(0);
   }
 
-  const marketplace = await getMarketplace();
+  const marketplace = await getMarketplace(hookInput.cwd || process.cwd());
   const marketplaceVersion = getMarketplaceVersion(marketplace.catalog);
   const marketplaceSource = marketplace.source;
   const fallbackNote = marketplace.fallbackReason
-    ? ` GitHub could not be reached (${marketplace.fallbackReason}); this is a local check, not confirmation of the published version.`
+    ? ` GitHub could not be reached (${marketplace.fallbackReason}); this local fallback does not confirm the published version.`
     : "";
 
   if (!marketplaceVersion) {
     writeContext(`repo-guide ${installedVersion} is installed, but ${marketplaceSource} does not declare a marketplace version for ${pluginName}.${fallbackNote}`);
-  } else if (marketplaceVersion === installedVersion) {
+    return;
+  }
+
+  const versionOrder = compareVersions(marketplaceVersion, installedVersion);
+  if (versionOrder === 0) {
     writeContext(`repo-guide version check passed: installed ${installedVersion} matches ${marketplaceSource} version ${marketplaceVersion}.${fallbackNote}`);
+  } else if (versionOrder === 1) {
+    const releaseStatus = marketplace.fallbackReason ? "A newer version is listed in the local marketplace, but its published availability is unverified." : "A new version is available.";
+    writeContext(`${releaseStatus} Installed repo-guide version: ${installedVersion}. Marketplace version: ${marketplaceVersion}. Tell the user to update with \`${updateCommand}\`. Do not run the command automatically.${fallbackNote}`);
+  } else if (versionOrder === -1) {
+    writeContext(`Installed repo-guide version ${installedVersion} is newer than ${marketplaceSource} version ${marketplaceVersion}.${fallbackNote}`);
   } else {
-    writeContext(`repo-guide version mismatch: installed ${installedVersion}, but ${marketplaceSource} lists ${marketplaceVersion}. Do not update automatically; ask the user how to proceed.${fallbackNote}`);
+    writeContext(`repo-guide versions differ: installed ${installedVersion}, marketplace ${marketplaceVersion}. They are not valid SemVer values, so do not claim that an update is available.${fallbackNote}`);
   }
 }
 
@@ -138,4 +206,4 @@ main().catch((error) => {
   writeContext(`repo-guide version check failed: ${error.message}`);
 });
 
-module.exports = { getMarketplaceVersion, readMarketplaceFile };
+module.exports = { compareVersions, getMarketplaceVersion, readMarketplaceFile };
