@@ -11,7 +11,7 @@
     {
       "name": "repo-guide",
       "description": "Hello World and repository-aware guidance for GitHub Copilot CLI",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "source": "./plugins/repo-guide"
     }
   ]

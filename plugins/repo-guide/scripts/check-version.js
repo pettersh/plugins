@@ -3,9 +3,8 @@ const https = require("node:https");
 const { dirname, join, resolve } = require("node:path");
 
 const marketplaceUrl = "https://raw.githubusercontent.com/pettersh/plugins/main/.github/plugin/marketplace.json";
-const marketplaceName = "pettersh-plugins";
 const pluginName = "repo-guide";
-const updateCommand = `copilot plugin update ${pluginName}@${marketplaceName}`;
+const updateCommand = `copilot plugin update ${pluginName}`;
 
 function writeContext(message) {
   process.stdout.write(`${JSON.stringify({ additionalContext: message })}\n`);
@@ -202,8 +201,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  writeContext(`repo-guide version check failed: ${error.message}`);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    writeContext(`repo-guide version check failed: ${error.message}`);
+  });
+}
 
 module.exports = { compareVersions, getMarketplaceVersion, readMarketplaceFile };

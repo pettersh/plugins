@@ -14,7 +14,7 @@ For repository guidance:
 When the user asks whether this plugin is up to date:
 - Read the status injected by the Copilot `sessionStart` hook, which compares the installed plugin version with the published GitHub marketplace catalog. Before the repository is pushed, the hook falls back to the local `.github/plugin/marketplace.json`.
 - If the hook reports a local fallback, explain that the published version could not be verified yet. The hook checks GitHub's default branch directly, so it does not need to refresh Copilot's marketplace cache.
-- If the hook reports a newer published version, tell the user to run `copilot plugin update repo-guide@pettersh-plugins`.
+- If the hook reports a newer published version, tell the user to run `copilot plugin update repo-guide`.
 - Do not run the update command automatically.
 
 Do not update the plugin or change repository files unless the user explicitly asks.
